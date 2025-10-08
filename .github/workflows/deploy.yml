@@ -5,71 +5,24 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# .github/workflows/deploy.yml
 jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup SSH
-      run: |
-        mkdir -p ~/.ssh
-        chmod 700 ~/.ssh
-        
-        # Write the private key with proper formatting
-        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
-        
-        # Validate the key format
-        if ! ssh-keygen -l -f ~/.ssh/id_rsa > /dev/null 2>&1; then
-          echo "Error: Invalid SSH private key format"
-          echo "Key content preview:"
-          head -n 3 ~/.ssh/id_rsa
-          exit 1
-        fi
-        
-        # Add server to known hosts
-        ssh-keyscan -H 13.215.192.207 >> ~/.ssh/known_hosts
-        
-        # Start SSH agent and add key
-        eval "$(ssh-agent -s)"
-        
-        # Try to add the key with verbose output for debugging
-        if ! ssh-add ~/.ssh/id_rsa; then
-          echo "Failed to add SSH key to agent"
-          echo "Key file permissions:"
-          ls -la ~/.ssh/id_rsa
-          echo "Key content (first 5 lines):"
-          head -n 5 ~/.ssh/id_rsa
-          exit 1
-        fi
-        
-        echo "SSH key added successfully"
-        
-    - name: Copy files to server
-      run: |
-        scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -r . alertli_ai@13.215.192.207:~/hello/
-        
-    - name: Deploy application
-      run: |
-        ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no alertli_ai@13.215.192.207 << 'EOF'
-          # Attach to the screen session
-          screen -S hello -X stuff $'\n'
-          
-          # Stop the server on port 9001
-          pkill -f "port 9001" || true
-          lsof -ti:9001 | xargs kill -9 || true
-          
-          # Navigate to the project directory
-          cd ~/hello/
-          
-          # Run the application
-          uv run main.py
-        EOF
-        
-    - name: Verify deployment
-      run: |
-        sleep 5
-        curl -f http://13.215.192.207:9001/ || echo "Deployment verification failed"
+    deploy:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+  
+        # Put your private key in repo secret: SSH_PRIVATE_KEY
+        - name: Start ssh-agent and add private key
+          uses: webfactory/ssh-agent@v0.9.0
+          with:
+            ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+  
+        - name: Trust host
+          run: |
+            mkdir -p ~/.ssh
+            ssh-keyscan -H 13.215.192.207 >> ~/.ssh/known_hosts
+  
+        - name: Your SSH command
+          run: ssh -o StrictHostKeyChecking=yes user@13.215.192.207 "uname -a"
+  
