@@ -79,13 +79,23 @@ jobs:
             find . -name "__pycache__" -type d -exec rm -rf {} + || true
 
             echo "Stopping existing application in screen ${SCREEN_NAME}..."
-            # Stop any running process in screen (Ctrl+D equivalent)
+            # Stop any running process in screen (Ctrl+C equivalent)
             screen -S "${SCREEN_NAME}" -X stuff $'\003' || true
             sleep 2
 
+            echo "Creating or attaching to screen session ${SCREEN_NAME}..."
+            # Create screen session if it doesn't exist, or attach if it does
+            if ! screen -list | grep -q "${SCREEN_NAME}"; then
+              echo "Creating new screen session: ${SCREEN_NAME}"
+              screen -dmS "${SCREEN_NAME}"
+              sleep 1
+            else
+              echo "Screen session ${SCREEN_NAME} already exists"
+            fi
+
             echo "Starting application with uv run..."
             # Start new process in screen
-            screen -S "${SCREEN_NAME}" -X stuff "cd '$APP_DIR' && uv run .$(printf \\r)"
+            screen -S "${SCREEN_NAME}" -X stuff "cd '$APP_DIR' && uv run main.py$(printf \\r)"
 
             echo "Waiting up to 30s for :${APP_PORT}..."
             for i in {1..30}; do
@@ -96,7 +106,7 @@ jobs:
               if [ $i -eq 30 ]; then
                 echo "Failed to start within 30s"
                 exit 1
-                fi
+              fi
               sleep 1
             done
             echo "Deployment completed successfully"
