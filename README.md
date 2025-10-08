@@ -47,6 +47,11 @@ If you don't have SSH keys set up:
 
 3. Copy the private key content and add it as the `SSH_PRIVATE_KEY` secret in GitHub
 
+**Important**: When copying the private key content:
+- Include the entire key including the `-----BEGIN OPENSSH PRIVATE KEY-----` and `-----END OPENSSH PRIVATE KEY-----` lines
+- Make sure there are no extra spaces or line breaks
+- The key should be in OpenSSH format (default for newer ssh-keygen versions)
+
 ### 3. Server Preparation
 
 Ensure your server has:
