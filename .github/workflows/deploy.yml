@@ -22,8 +22,8 @@ concurrency:
 
 env:
   PYTHON_VERSION: '3.11'
-  APP_PORT: 9001
-  SCREEN_NAME: 'hello'
+  APP_PORT: 5008
+  SCREEN_NAME: 'final'
   REMOTE_DIR: '/home/alertli_ai/hello'
 
 jobs:
