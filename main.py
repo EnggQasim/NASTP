@@ -8,5 +8,9 @@ app = FastAPI()
 async def read_root():
     return "Pakistan zindabad!"
 
+@app.get("/", response_class=PlainTextResponse)
+async def greeting(name:str):
+    return f"Hello {name}!"
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=5008)
