@@ -1,0 +1,49 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.9.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+        
+    - name: Add server to known hosts
+      run: |
+        ssh-keyscan -H 13.215.192.207 >> ~/.ssh/known_hosts
+        
+    - name: Copy files to server
+      run: |
+        scp -r . alertli_ai@13.215.192.207:~/hello/
+        
+    - name: Deploy application
+      run: |
+        ssh alertli_ai@13.215.192.207 << 'EOF'
+          # Attach to the screen session
+          screen -S hello -X stuff $'\n'
+          
+          # Stop the server on port 9001
+          pkill -f "port 9001" || true
+          lsof -ti:9001 | xargs kill -9 || true
+          
+          # Navigate to the project directory
+          cd ~/hello/
+          
+          # Run the application
+          uv run main.py
+        EOF
+        
+    - name: Verify deployment
+      run: |
+        sleep 5
+        curl -f http://13.215.192.207:9001/ || echo "Deployment verification failed"
