@@ -1,28 +1,136 @@
-name: Deploy to Server1
+name: CI/CD - Deploy to Alertli Server
 
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'docs/**'
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options: [ production, staging ]
 
-# .github/workflows/deploy.yml
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: '3.11'
+  APP_PORT: 9001
+  SCREEN_NAME: 'hello'
+  REMOTE_DIR: '/home/alertli_ai/hello'
+
 jobs:
-    deploy:
-      runs-on: ubuntu-latest
-      steps:
-        - uses: actions/checkout@v4
-  
-        # Put your private key in repo secret: SSH_PRIVATE_KEY
-        - name: Start ssh-agent and add private key
-          uses: webfactory/ssh-agent@v0.9.0
-          with:
-            ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-  
-        - name: Trust host
-          run: |
-            mkdir -p ~/.ssh
-            ssh-keyscan -H 13.215.192.207 >> ~/.ssh/known_hosts
-  
-        - name: Your SSH command
-          run: ssh -o StrictHostKeyChecking=yes user@13.215.192.207 "uname -a"
-  
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      # --- Upload files to server ---
+      - name: Upload files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: 13.215.192.207
+          username: alertli_ai
+          password: ${{ secrets.ALERTLI_PASSWORD }}
+          port: 22
+          source: "."
+          target: ${{ env.REMOTE_DIR }}
+          rm: false
+          overwrite: true
+          strip_components: 0
+          timeout: 600s
+          command_timeout: 10m
+
+      # --- Deploy and restart application ---
+      - name: Deploy and restart application
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          APP_PORT: ${{ env.APP_PORT }}
+          SCREEN_NAME: ${{ env.SCREEN_NAME }}
+        with:
+          host: 13.215.192.207
+          username: alertli_ai
+          password: ${{ secrets.ALERTLI_PASSWORD }}
+          port: 22
+          command_timeout: "30m"
+          envs: APP_PORT,SCREEN_NAME
+          script: |
+            set -euo pipefail
+            APP_DIR="${{ env.REMOTE_DIR }}"
+            cd "$APP_DIR"
+
+            echo "Cleaning up unwanted files..."
+            # Remove unwanted files and directories
+            rm -rf .git/ .github/ .venv/ node_modules/ docs/ __pycache__/ || true
+            find . -name "*.pyc" -delete || true
+            find . -name "*.pyo" -delete || true
+            find . -name "*.pyd" -delete || true
+            find . -name "__pycache__" -type d -exec rm -rf {} + || true
+
+            echo "Stopping existing application in screen ${SCREEN_NAME}..."
+            # Stop any running process in screen (Ctrl+D equivalent)
+            screen -S "${SCREEN_NAME}" -X stuff $'\003' || true
+            sleep 2
+
+            echo "Starting application with uv run..."
+            # Start new process in screen
+            screen -S "${SCREEN_NAME}" -X stuff "cd '$APP_DIR' && uv run .$(printf \\r)"
+
+            echo "Waiting up to 30s for :${APP_PORT}..."
+            for i in {1..30}; do
+              if lsof -i :${APP_PORT} >/dev/null 2>&1; then
+                echo "Application is running on :${APP_PORT}"
+                break
+              fi
+              if [ $i -eq 30 ]; then
+                echo "Failed to start within 30s"
+                exit 1
+                fi
+              sleep 1
+            done
+            echo "Deployment completed successfully"
+
+      # --- Verify deployment ---
+      - name: Verify deployment
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          APP_PORT: ${{ env.APP_PORT }}
+          SCREEN_NAME: ${{ env.SCREEN_NAME }}
+        with:
+          host: 13.215.192.207
+          username: alertli_ai
+          password: ${{ secrets.ALERTLI_PASSWORD }}
+          port: 22
+          envs: APP_PORT,SCREEN_NAME
+          script: |
+            set -euo pipefail
+            echo "Verifying deployment..."
+            
+            # Check if app is running on the port
+            if lsof -i :${APP_PORT} >/dev/null 2>&1; then
+              echo "✓ Application is running on port ${APP_PORT}"
+            else
+              echo "✗ Application is not running on port ${APP_PORT}"
+              exit 1
+            fi
+            
+            # Check if screen session exists
+            if screen -list | grep -q "${SCREEN_NAME}"; then
+              echo "✓ Screen session '${SCREEN_NAME}' is active"
+            else
+              echo "✗ Screen session '${SCREEN_NAME}' not found"
+              exit 1
+            fi
+            
+            echo "✓ Deployment verification successful"
